@@ -1,0 +1,216 @@
+---
+title: "Physiological data from IMR"
+author: "Hanne Gladhaug Woien Mo"
+date: "2023-11-02"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(pwr)
+library(ggplot2) #Loading the packages I intend to use. 
+cod <- read_excel("fys_IMR.xlsx", sheet = "Atlantic cod") #Importing the dataset for cod from IMR
+View(cod)
+```
+
+## Atlantic cod 
+
+The age of the fish I am planning to sample might be restricted, to the age of the fish is an intersting variable to add. First, the fat content within each age groupshould be inspected. 
+```{r message=FALSE, warning=FALSE}
+# A boxplot of the fat content in fillet in each age group
+bowplot_age <- ggplot(cod, aes(x = as.factor(Age), y = Fatcontent_fillet)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Fat content in fillet by age", 
+       x = "Age",
+       y = "Fat content in fillet")
+  print(bowplot_age)
+
+# A bowplot pf the fat content in the liver in each age group 
+boxplot_liverfat <- ggplot(cod, aes(x = as.factor(Age), y = Fatcontent_liver)) +
+  geom_boxplot(fill = "violet") +
+  labs(title = "Fat content in liver by age", 
+       x = "Age",
+       y = "Fat content in liver")
+print(boxplot_liverfat)    
+  
+```
+Both the fat content in the liver and in fillet have a few outliers. An eventual approach to inspect the outliers, what makes them stand out from the other values, evaluate if they can be removed. 
+Another interesting point is does the variables follow the weight of the fish, do they correlate? 
+
+```{r message=FALSE, warning=FALSE}
+#A scatterplot with an average line of the liver and total weights
+smooth_liver <- ggplot(cod, aes(x = Fish_weight, y = Liver_weight)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Relationship between liver weight and total weight", 
+       x = "Fish weigth (g)", 
+       y = "Liver weight  (g)")
+
+smooth_liver
+#This line is almost linear
+
+#Doing the same for gonad weights
+smooth_gonads <- ggplot(cod, aes(x = Fish_weight, y = Gonad_weight)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Relationship between gonad weight and total weight", 
+       x = "Fish weigth (g)", 
+       y = "Gonad weight  (g)") +
+   facet_grid(.~ Sex_M1_F0, labeller = labeller(Sex_M1_F0 = c("1" = "Male", "0" = "Female")))
+
+smooth_gonads #Also a clear relationship, but wise to part plot based on sex
+
+```
+As expected there is a relationship between the total weight of the fish and the measured weights of liver and gonads. The bigger the fish, the larger the tissues. For gonads, the average weight of the female gonads are larger than the male. 
+
+```{r message=FALSE, warning=FALSE}
+by_weight <- cod %>% 
+  group_by(Fish_weight) %>% #Grouping by fish weight 
+  arrange(desc(Fish_weight)) %>% #Arranging in descending order
+  ggplot(aes(x = Fish_weight, y = Fatcontent_fillet)) +
+  geom_point() + 
+  geom_smooth()
+by_weight #The relationship between fat content in fillet and weight of the fish. 
+```
+The fat content is calculated as g/100g so this plot does not tell us much, since the total weight already is accounted for in the dataset. 
+
+
+```{r message=FALSE, warning=FALSE}
+filtered_cod <- cod %>% 
+  select(Age, Fish_weight, Gonad_weight, Liver_weight, Fatcontent_fillet, Fatcontent_liver, Total_length) #Filtering to only include the numerical vectors in the dataset. 
+library(GGally)
+ggpairs(data = filtered_cod, columns = 1:7) # A matrix of plots from the filtered dataset, might give an overview. 
+```
+
+## Variance fat content in cod 
+The variance is a measurement of how the data values are dispersed around the mean. To figure out if the fish species can be utilized to make a generic multispecies model, the values should be able to give a good estimate of the actual population mean for the fish to represent the species. We them aim for a low variance in the dataset that will be collected. 
+
+```{r message=FALSE, warning=FALSE}
+# Calculate variances for each variable
+variances <- sapply(filtered_cod, var)
+
+# Create a data frame with variances for a better overview
+variance_overview <- data.frame(Variable = names(variances), Variance = variances)
+
+# Print the table
+print(variance_overview)
+```
+The paramateters we are interested in for the model are the liver weight, maybe gonad weight and fat content in fillet and liver. The weight, length and age of the fish are metadata that can be used to describe the values. The fish in the data are of different age. To try reducing the variance in the chosen data, we can look into each age to see if this is what leads to the high variance. 
+
+```{r message=FALSE, warning=FALSE}
+var(cod$Fatcontent_liver) #The variance for the lipid content in liver is high for the total dataset. 
+summary(cod$Fatcontent_liver)
+cod_r <- cod %>% group_split(Age) #Splitting the datset into ages to see if the age affect the variance and if some age groups should be excluded. 
+ages <- list2env(setNames(cod_r, paste0("age", 1:9)), environment()) #Separating the datasets into age groups 
+
+theages <- paste0("age", 1:9) #Recreating a list with the ages
+variance_summary_liver <- data.frame(Dataset = character(), Variance = numeric()) # An empty data frame to store the variances
+
+#Loop through each dataset and calculate the variances 
+for (age in theages) {
+  dataset <- get(age)
+  variance <- var(dataset$Fatcontent_liver, na.rm = TRUE)  # Replace 'value' with your column name
+  variance_summary_liver <- rbind(variance_summary_liver, data.frame(Dataset = age, Variance = variance))
+}
+
+view(variance_summary_liver) #The variance of lipid content in liver is high in each of the age groups. 
+```
+The high variance is a result of a wide range from the mean. There is no age group that is disturbing the total variance in a more concerning way than any other. This should also be inspected in the fillet. 
+
+```{r message=FALSE, warning=FALSE}
+variance_summary_fillet <- data.frame(Dataset = character(), Variance = numeric()) # An empty data frame to store the variances
+
+#Loop through each dataset and calculate the variances 
+for (age in theages) {
+  dataset <- get(age)
+  variance <- var(dataset$Fatcontent_fillet, na.rm = TRUE)
+  variance_summary_fillet <- rbind(variance_summary_fillet, data.frame(Dataset = age, Variance = variance))
+}
+
+view(variance_summary_fillet)
+```
+The list of variances within each age group for the fat content in fillet had prettier numbers than the fat content in liver. This means that if we can estimate the numbers of samples needed to get a good estimate of fat content in liver, then the fat conttent in fillet will also be covered. 
+
+We can also evaluate if the weight is what's giving such a high variance. 
+```{r message=FALSE, warning=FALSE}
+cod$Fish_weight <- as.numeric(cod$Fish_weight) #Fish weight has to be numeric to split the data into weight classes. 
+weight_breaks <- seq(0, 11000, by = 1000)
+data_by_weight_class <- split(cod, cut(cod$Fish_weight, breaks = weight_breaks, include.lowest = TRUE))
+
+weight_class_names <- paste0("weight_", head(weight_breaks, -1), "_", tail(weight_breaks, -1))
+
+# Create a named list of data frames
+data_by_weight_class <- setNames(data_by_weight_class, weight_class_names)
+#Separating based on weight class 
+
+
+#Inspecting the variance in each dataset: 
+variance_weight_fatliver <- data.frame(Weight = character(), Variance = numeric()) # An empty data frame to store the variances
+
+#Loop through each dataset and calculate the variances 
+for (weight_ in weight_class_names) {
+  wc <- get(weight_)
+  vara <- var(wc$Fatcontent_liver, na.rm = TRUE)
+  variance_weight_fatliver<- rbind(variance_weight_fatliver, data.frame(Dataset = weight_, Variance = vara))
+}
+
+View(variance_weight_fatliver)
+```
+When parted into different weight classes, there is none of the weight classes that stand out as an issue creating high variance. When inspecting *weightclass_data*, most of the observations are in between 1000 - 3000g. The variance is high also here, and in the classes with fewer observations. The other metadata is not relevant for the future sampling, but we need to look into if the geography is the problem. 
+
+```{r message=FALSE, warning=FALSE}
+# Split the dataset based on Sea area 
+sea_area <- split(cod, cod$`Sea area`)
+
+# Access individual subsets
+barents_sea <- sea_area[["Barents Sea"]]
+north_sea <- sea_area[["North Sea"]]
+norwegian_sea <- sea_area[["Norwegian Sea"]]
+
+#Calculating the variances
+var(barents_sea$Fatcontent_liver)
+var(north_sea$Fatcontent_liver)
+var(norwegian_sea$Fatcontent_liver)
+```
+No obvious reason for the high variance here either. The next step is to remove the extreme outliers. 
+
+```{r message=FALSE, warning=FALSE}
+alpha <- 0.05  # Significance level
+effect_size <- 0.5  # Choose an appropriate effect size
+power <- 0.80  # Desired power
+
+# Calculate the sample size
+sample_size <- pwr.t.test(
+  d = effect_size, 
+  sig.level = alpha, 
+  power = power, 
+  type = "one.sample"
+)
+
+sample_size
+```
+I think we have to limit the number of samples and decide the effect size instead of calculating it based on numbers from IMR. 
+
+
+```{r message=FALSE, warning=FALSE}
+library(effectsize)
+mod <- lm(cod$Fatcontent_liver ~ cod$Age)
+anova(mod)
+eta <- eta_squared(mod)
+eta_sq <- eta$Eta2 #This equals the effect size. 
+
+print(eta_sq)
+
+sample_size <- pwr.anova.test(
+  k = 2,  # Number of groups (species)
+  f = eta_sq,  #Effect size for variance
+  sig.level = 0.05,
+  power = 0.80)
+
+sample_size$n
+```
+

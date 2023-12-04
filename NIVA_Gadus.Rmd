@@ -1,0 +1,92 @@
+---
+title: "NIVA_Gadus"
+author: "Hanne Gladhaug Woien Mo"
+date: "2023-11-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+## Examining data from NIVA
+Data for Atlantic cod *Gadus morhua* was extracted from the database of previously collected values from other NIVA-projects. 
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+Gadus <- read_excel("~/NIVA - EXPECT/Data/Gadus.xlsx", 
+    sheet = "Export Worksheet")
+View(Gadus)
+```
+The data consists of information on carbon content, measured consenrtations of pollutants and isotopes of nitrogen etc. The fish has been collected from different locations along the Norwegian coast - listed in the column *Description*.
+
+```{r}
+#Grouping by the parameter column to get an overview of the data.
+parameters <- unique(Gadus$REPORTED_NAME) %>%
+  sort()
+
+parameters
+```
+
+The parameter that is interesting for the model is lipid content and weigths of organs. *Fettinnhold* is the interesting parameter. 
+
+```{r}
+#Filtering the data to include only the lipid content. 
+
+fat <- Gadus %>% 
+  filter(REPORTED_NAME == "Fettinnhold") %>% 
+  group_by("TISSUE")
+
+#Sorting into different tissues
+muscle <- fat%>% 
+  filter(TISSUE == "MU-Muskel") 
+liver <- fat %>% 
+  filter(TISSUE == "LI-Lever")
+
+hist(muscle$NUMERIC_ENTRY)
+
+hist_liver <- ggplot(liver, aes(x = NUMERIC_ENTRY)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "blue", alpha = 0.7) +
+  labs(title = "Fat content in liver",
+       x = "Fat content (%)",
+       y = "Frequency") +
+  theme_minimal()
+
+print(hist_liver)
+
+hist_muscle <- ggplot(muscle, aes(x = NUMERIC_ENTRY)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "blue", alpha = 0.7) +
+  labs(title = "Fat content in liver",
+       x = "Fat content (%)",
+       y = "Frequency") +
+  theme_minimal()
+
+print(hist_muscle)
+```
+
+```{r}
+liver_var <- var(liver$NUMERIC_ENTRY, na.rm = TRUE)
+#This variance is very high, some of the metadata 
+boxplot_liver <- ggplot(liver, aes(x = AQUAMONITOR_NAME, y = NUMERIC_ENTRY)) +
+  geom_boxplot(fill = "violet") +
+  labs(title = "Fat content in liver by age", 
+       x = "Location",
+       y = "Fat content in liver") + 
+  coord_flip()
+print(boxplot_liver) 
+```
+
+```{r}
+variance_by_location <- liver %>%
+  group_by(AQUAMONITOR_NAME) %>%
+  summarize(variance = var(NUMERIC_ENTRY), sd = sd(NUMERIC_ENTRY))
+
+view(variance_by_location)
+
+variance_by_project <- liver %>% 
+  group_by(PROSJEKT) %>% 
+  summarize(variance = var(NUMERIC_ENTRY), sd = sd(NUMERIC_ENTRY))
+
+view(variance_by_project)
+```
+
+
